@@ -2596,6 +2596,8 @@ class AzurePlatform(Platform):
                 next_value=self._get_meet_capabilities,
                 can_early_stop=True,
             )
+            if found:
+                results = [True] * len(results)
 
         if len(results) < len(nodes_requirement):
             # not found enough vm sizes, so mark it as not found
