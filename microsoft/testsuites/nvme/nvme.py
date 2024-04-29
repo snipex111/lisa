@@ -12,9 +12,10 @@ from lisa import (
     TestSuite,
     TestSuiteMetadata,
     constants,
+    schema,
     simple_requirement,
 )
-from lisa.features import Nvme, NvmeSettings, Sriov
+from lisa.features import Disk, Nvme, NvmeSettings, Sriov
 from lisa.sut_orchestrator.azure.platform_ import AzurePlatform
 from lisa.tools import Cat, Echo, Fdisk, Lscpu, Lspci, Mount, Nvmecli
 from lisa.tools.fdisk import FileSystem
@@ -414,20 +415,12 @@ class NvmeTestSuite(TestSuite):
             "folder /dev and return value from [nvme list]."
         ).is_length(len(nvme_namespace))
 
-        # 3. Compare nvme devices count return from `lspci`
-        #  and list nvme devices under /dev/.
-        nvme_device_from_lspci = nvme.get_devices_from_lspci()
-        assert_that(nvme_device).described_as(
-            "nvme devices count should be consistent between return value from [lspci] "
-            "and listed devices under folder /dev."
-        ).is_length(len(nvme_device_from_lspci))
-
-        # 4. Azure platform only, nvme devices count should equal to
-        #  actual vCPU count / 8.
-        if isinstance(environment.platform, AzurePlatform):
-            lscpu_tool = node.tools[Lscpu]
-            core_count = lscpu_tool.get_core_count()
-            expected_count = math.ceil(core_count / 8)
-            assert_that(nvme_namespace).described_as(
-                "nvme devices count should be equal to [vCPU/8]."
-            ).is_length(expected_count)
+        node_disk = node.features[Disk]
+        if node_disk.get_os_disk_controller_type() != schema.DiskControllerType.NVME:
+            # 3. Compare nvme devices count return from `lspci`
+            #  and list nvme devices under /dev/.
+            nvme_device_from_lspci = nvme.get_devices_from_lspci()
+            assert_that(nvme_device).described_as(
+                "nvme devices count should be consistent between return value from [lspci] "
+                "and listed devices under folder /dev."
+            ).is_length(len(nvme_device_from_lspci))

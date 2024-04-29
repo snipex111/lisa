@@ -98,7 +98,12 @@ class Nvmecli(Tool):
 
     def get_namespaces(self) -> List[str]:
         namespaces_cli = []
-        nvme_list = self.run("list", shell=True, sudo=True)
+        # 'MSFT NVMe Accelerator' is ASAP controller.
+        # When disc controller type is NVME, remote SCSI devices are connected with
+        # 'MSFT NVMe Accelerator'
+        nvme_list = self.run(
+            "list| grep -v 'MSFT NVMe Accelerator'", shell=True, sudo=True
+        )
         for row in nvme_list.stdout.splitlines():
             matched_result = self._namespace_cli_pattern.match(row)
             if matched_result:

@@ -41,6 +41,8 @@ class Nvme(Feature):
 
     # /dev/nvme0n1p15 -> /dev/nvme0n1
     NVME_NAMESPACE_PATTERN = re.compile(r"/dev/nvme[0-9]+n[0-9]+", re.M)
+    # /dev/nvme0n1p15 -> /dev/nvme0
+    NVME_DEVICE_PATTERN = re.compile(r"/dev/nvme[0-9]+", re.M)
 
     _pci_device_name = "Non-Volatile memory controller"
     _ls_devices: str = ""
@@ -63,6 +65,16 @@ class Nvme(Feature):
             matched_result = self._device_pattern.match(row)
             if matched_result:
                 devices_list.append(matched_result.group("device_name"))
+
+        # With disk controller type NVMe, OS disk appears as NVMe.
+        # It should be removed from the list of disks for NVMe tests as it is
+        # not an actual NVMe device.
+        # disk_controller_type == NVME
+        node_disk = self._node.features[Disk]
+        if node_disk.get_os_disk_controller_type() == schema.DiskControllerType.NVME:
+            os_disk_device = self.get_os_disk_device()
+            # Removing OS disk from the list.
+            devices_list.remove(os_disk_device)
         return devices_list
 
     def get_namespaces(self) -> List[str]:
@@ -92,6 +104,19 @@ class Nvme(Feature):
                 self.NVME_NAMESPACE_PATTERN,
             )
         return os_partition_namespace
+    
+    def get_os_disk_device(self) -> str:
+        node_disk = self._node.features[Disk]
+        os_disk_device = ""
+        os_boot_partition = node_disk.get_os_boot_partition()
+        # Sample os_boot_partition when disc controller type is NVMe:
+        # name: /dev/nvme0n1p15, disk: nvme, mount_point: /boot/efi, type: vfat
+        if os_boot_partition:
+            os_disk_device = get_matched_str(
+                os_boot_partition.name,
+                self.NVME_DEVICE_PATTERN,
+            )
+        return os_disk_device
 
     def get_devices_from_lspci(self) -> List[PciDevice]:
         devices_from_lspci = []
