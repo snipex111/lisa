@@ -36,6 +36,16 @@ PATTERN_PCI_DEVICE = re.compile(
     re.MULTILINE,
 )
 
+# lspci -n
+# 19e3:00:00.0 0108: 1414:b111 (rev 01)
+# 2b5c:00:00.0 0108: 1414:b111 (rev 01)
+# d2e9:00:00.0 0108: 1414:00a9
+# d3f4:00:02.0 0200: 15b3:101a (rev 80)
+PATTERN_PCI_DEVICE_ID = re.compile(
+    r"^(?P<slot>[^\s]+)\s+(?P<controller_id>[0-9a-fA-F]{4}):\s+(?P<vendor_id>[0-9a-fA-F]{4}):(?P<device_id>[0-9a-fA-F]{4})",
+    re.MULTILINE,
+)
+
 # PCI bus info:
 # $ grep PCI_ID /sys/bus/pci/devices/*/uevent
 # /sys/bus/pci/devices/4294:00:00.0/uevent:PCI_ID=1414:B111
@@ -70,8 +80,8 @@ PATTERN_MODULE_IN_USE = re.compile(r"Kernel driver in use: ([A-Za-z0-9_-]*)", re
 
 
 class PciDevice:
-    def __init__(self, pci_device_raw: str, pci_bus_info: dict) -> None:
-        self.parse(pci_device_raw, pci_bus_info)
+    def __init__(self, pci_device_raw: str, pci_ids: dict) -> None:
+        self.parse(pci_device_raw, pci_ids)
 
     def __str__(self) -> str:
         return (
@@ -81,17 +91,23 @@ class PciDevice:
             f"info: {self.device_info} "
             f"vendor_id: {self.device_id} "
             f"device_id: {self.device_id} "
+            f"controller_id: {self.controller_id} "
         )
 
-    def parse(self, raw_str: str, pci_bus_info: dict) -> None:
+    def parse(self, raw_str: str, pci_ids: dict) -> None:
+        self.device_id = ""
+        self.vendor_id = ""
+        self.controller_id = ""
         matched_pci_device_info = PATTERN_PCI_DEVICE.match(raw_str)
         if matched_pci_device_info:
             self.slot = matched_pci_device_info.group("slot")
             self.device_class = matched_pci_device_info.group("device_class")
             self.vendor = matched_pci_device_info.group("vendor")
-            self.device_id = pci_bus_info[self.slot]["device_id"]
-            self.vendor_id = pci_bus_info[self.slot]["vendor_id"]
             self.device_info = matched_pci_device_info.group("device")
+            if pci_ids:
+                self.device_id = pci_ids[self.slot]["device_id"]
+                self.vendor_id = pci_ids[self.slot]["vendor_id"]
+                self.controller_id = pci_ids[self.slot]["controller_id"]
         else:
             raise LisaException("cannot find any matched pci devices")
 
@@ -156,19 +172,40 @@ class Lspci(Tool):
             # _pci_bus_info dict:
             # {'slot':{'device_id': <device_id>, 'vendor_id': <vendor_id>}}
             self._pci_bus_info = {}
+            self._pci_device_ids = {}
             # Ensure pci device ids and name mappings are updated.
             self.node.execute("update-pciids", sudo=True)
             # Getting 
-            pci_bus_raw = self.node.execute("grep PCI_ID /sys/bus/pci/devices/*/uevent", sudo=True, shell=True)
-            for pci_bus in pci_bus_raw.stdout.splitlines():
-                pci_bus_info={}
-                matched_pci_bus_info = PATTERN_PCI_BUS.match(pci_bus)
-                pci_bus_info[matched_pci_bus_info["slot"]] = {
-                    "device_id": matched_pci_bus_info["device_id"],
-                    "vendor_id": matched_pci_bus_info["vendor_id"]
-                }
-                self._pci_bus_info.update(pci_bus_info)
+            #pci_bus_raw = self.node.execute("grep PCI_ID /sys/bus/pci/devices/*/uevent", sudo=True, shell=True)
+            #for pci_bus in pci_bus_raw.stdout.splitlines():
+            #    pci_bus_info={}
+            #    matched_pci_bus_info = PATTERN_PCI_BUS.match(pci_bus)
+            #    pci_bus_info[matched_pci_bus_info["slot"]] = {
+            #        "device_id": matched_pci_bus_info["device_id"],
+            #        "vendor_id": matched_pci_bus_info["vendor_id"]
+            #    }
+            #    self._pci_bus_info.update(pci_bus_info)
 
+            result = self.run(
+                "-n",
+                force_run=force_run,
+                shell=True,
+                expected_exit_code=0,
+                sudo=True,
+            )
+            for pci_raw in result.stdout.splitlines():
+                pci_device_id_info={}
+                matched_pci_device_info = PATTERN_PCI_DEVICE_ID.match(pci_raw)
+                if matched_pci_device_info:
+                    pci_device_id_info[matched_pci_device_info.group("slot")] = {
+                        "device_id": matched_pci_device_info.group("device_id"),
+                        "vendor_id": matched_pci_device_info.group("vendor_id"),
+                        "controller_id": matched_pci_device_info.group("controller_id")
+                    }
+                else:
+                    raise LisaException("cannot find any matched pci ids")
+                self._pci_device_ids.update(pci_device_id_info)
+             
             result = self.run(
                 "-m",
                 force_run=force_run,
@@ -177,7 +214,7 @@ class Lspci(Tool):
                 sudo=True,
             )
             for pci_raw in result.stdout.splitlines():
-                pci_device = PciDevice(pci_raw, self._pci_bus_info)
+                pci_device = PciDevice(pci_raw, self._pci_device_ids)
                 self._pci_devices.append(pci_device)
 
         return self._pci_devices
