@@ -32,7 +32,18 @@ from lisa.util import LisaException, constants, find_patterns_in_lines, get_matc
 #             -r20 "Dell" "PowerEdge R610 BCM5709 Gigabit Ethernet
 PATTERN_PCI_DEVICE = re.compile(
     r"^(?P<slot>[^\s]+)\s+[\"\'](?P<device_class>[^\"\']+)[\"\']\s+[\"\']"
-    r"(?P<vendor>[^\"\']+)[\"\']\s+[\"\'](?P<device>.*?)[\"\']?$",
+    r"(?P<vendor>[^\"\']+)[\"\']\s+[\"\'](?P<device_id>[^\"\']+)(?P<device>.*?)[\"\']?$",
+    re.MULTILINE,
+)
+
+# lspci -n
+# 19e3:00:00.0 0108: 1414:b111 (rev 01)
+# 2b5c:00:00.0 0108: 1414:b111 (rev 01)
+# d2e9:00:00.0 0108: 1414:00a9
+# d3f4:00:02.0 0200: 15b3:101a (rev 80)
+PATTERN_PCI_DEVICE_ID = re.compile(
+    r"^(?P<slot>[^\s]+)\s+(?P<controller_id>[0-9a-fA-F]{4}):\s+"
+    r"(?P<vendor_id>[0-9a-fA-F]{4}):(?P<device_id>[0-9a-fA-F]{4})",
     re.MULTILINE,
 )
 
@@ -54,8 +65,8 @@ PATTERN_MODULE_IN_USE = re.compile(r"Kernel driver in use: ([A-Za-z0-9_-]*)", re
 
 
 class PciDevice:
-    def __init__(self, pci_device_raw: str) -> None:
-        self.parse(pci_device_raw)
+    def __init__(self, pci_device_raw: str, pci_ids: Dict[str, Any]) -> None:
+        self.parse(pci_device_raw, pci_ids)
 
     def __str__(self) -> str:
         return (
@@ -63,15 +74,22 @@ class PciDevice:
             f"class {self.device_class} "
             f"vendor {self.vendor} "
             f"info: {self.device_info} "
+            f"vendor_id: {self.device_id} "
+            f"device_id: {self.device_id} "
+            f"controller_id: {self.controller_id} "
         )
 
-    def parse(self, raw_str: str) -> None:
+    def parse(self, raw_str: str, pci_ids: Dict[str, Any]) -> None:
         matched_pci_device_info = PATTERN_PCI_DEVICE.match(raw_str)
         if matched_pci_device_info:
             self.slot = matched_pci_device_info.group("slot")
             self.device_class = matched_pci_device_info.group("device_class")
             self.vendor = matched_pci_device_info.group("vendor")
             self.device_info = matched_pci_device_info.group("device")
+            if pci_ids:
+                self.device_id = pci_ids[self.slot]["device_id"]
+                self.vendor_id = pci_ids[self.slot]["vendor_id"]
+                self.controller_id = pci_ids[self.slot]["controller_id"]
         else:
             raise LisaException("cannot find any matched pci devices")
 
@@ -123,8 +141,38 @@ class Lspci(Tool):
     def get_devices(self, force_run: bool = False) -> List[PciDevice]:
         if (not self._pci_devices) or force_run:
             self._pci_devices = []
+            self._pci_device_ids = {}
             # Ensure pci device ids and name mappings are updated.
             self.node.execute("update-pciids", sudo=True)
+            # Fetch pci ids using 'lspci -n'
+            # Fetching the same information using 'lspci -nnm' is not reliable
+            # due to inconsistencies in device id field.
+            # Ex:
+            # d2e9:00:00.0 "Non-Volatile memory controller [0108]" "Microsoft Corporation [1414]" "Device [00a9]" -p02 "Microsoft Corporation [1414]" "Device [0000]" # noqa: E501
+            # d3f4:00:02.0 "Ethernet controller [0200]" "Mellanox Technologies [15b3]" "MT28800 Family [ConnectX-5 Ex Virtual Function] [101a]" -r80 "Mellanox Technologies [15b3]" "MT28800 Family [ConnectX-5 Ex Virtual Function] [0127]" # noqa: E501
+            # Sample 'lspci -n' output for above devices:
+            # d2e9:00:00.0 0108: 1414:00a9
+            # d3f4:00:02.0 0200: 15b3:101a (rev 80)
+            result = self.run(
+                "-n",
+                force_run=force_run,
+                shell=True,
+                expected_exit_code=0,
+                sudo=True,
+            )
+            for pci_raw in result.stdout.splitlines():
+                pci_device_id_info = {}
+                matched_pci_device_info = PATTERN_PCI_DEVICE_ID.match(pci_raw)
+                if matched_pci_device_info:
+                    pci_device_id_info[matched_pci_device_info.group("slot")] = {
+                        "device_id": matched_pci_device_info.group("device_id"),
+                        "vendor_id": matched_pci_device_info.group("vendor_id"),
+                        "controller_id": matched_pci_device_info.group("controller_id")
+                    }
+                else:
+                    raise LisaException("cannot find any matched pci ids")
+                self._pci_device_ids.update(pci_device_id_info)
+
             result = self.run(
                 "-m",
                 force_run=force_run,
@@ -133,9 +181,8 @@ class Lspci(Tool):
                 sudo=True,
             )
             for pci_raw in result.stdout.splitlines():
-                pci_device = PciDevice(pci_raw)
+                pci_device = PciDevice(pci_raw, self._pci_device_ids)
                 self._pci_devices.append(pci_device)
-
         return self._pci_devices
 
     def disable_devices_by_type(self, device_type: str) -> int:
