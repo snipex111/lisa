@@ -32,7 +32,17 @@ from lisa.util import LisaException, constants, find_patterns_in_lines, get_matc
 #             -r20 "Dell" "PowerEdge R610 BCM5709 Gigabit Ethernet
 PATTERN_PCI_DEVICE = re.compile(
     r"^(?P<slot>[^\s]+)\s+[\"\'](?P<device_class>[^\"\']+)[\"\']\s+[\"\']"
-    r"(?P<vendor>[^\"\']+)[\"\']\s+[\"\'](?P<device>.*?)[\"\']?$",
+    r"(?P<vendor>[^\"\']+)[\"\']\s+[\"\'](?P<device_id>[^\"\']+)(?P<device>.*?)[\"\']?$",
+    re.MULTILINE,
+)
+
+# PCI bus info:
+# $ grep PCI_ID /sys/bus/pci/devices/*/uevent
+# /sys/bus/pci/devices/4294:00:00.0/uevent:PCI_ID=1414:B111
+# /sys/bus/pci/devices/5671:00:00.0/uevent:PCI_ID=1414:00A9
+# /sys/bus/pci/devices/9552:00:02.0/uevent:PCI_ID=15B3:101A
+PATTERN_PCI_BUS = re.compile(
+    r"/sys/bus/pci/devices/(?P<slot>[^\s]+)/uevent:PCI_ID=(?P<vendor_id>[^\s]+):(?P<device_id>[^\s]+)$",
     re.MULTILINE,
 )
 
@@ -46,6 +56,12 @@ VENDOR_TYPE_DICT: Dict[str, List[str]] = {
     constants.DEVICE_TYPE_GPU: ["NVIDIA Corporation"],
 }
 
+DEVICE_ID_DICT: Dict[str, List[str]] = {
+    constants.DEVICE_TYPE_NVME: ["Device b111"],
+    constants.DEVICE_TYPE_SRIOV: [],
+    constants.DEVICE_TYPE_GPU: [],
+}
+
 # Kernel driver in use: mlx4_core
 # Kernel driver in use: mlx5_core
 # Kernel driver in use: mlx4_core\r
@@ -54,8 +70,8 @@ PATTERN_MODULE_IN_USE = re.compile(r"Kernel driver in use: ([A-Za-z0-9_-]*)", re
 
 
 class PciDevice:
-    def __init__(self, pci_device_raw: str) -> None:
-        self.parse(pci_device_raw)
+    def __init__(self, pci_device_raw: str, pci_bus_info: dict) -> None:
+        self.parse(pci_device_raw, pci_bus_info)
 
     def __str__(self) -> str:
         return (
@@ -63,14 +79,18 @@ class PciDevice:
             f"class {self.device_class} "
             f"vendor {self.vendor} "
             f"info: {self.device_info} "
+            f"vendor_id: {self.device_id} "
+            f"device_id: {self.device_id} "
         )
 
-    def parse(self, raw_str: str) -> None:
+    def parse(self, raw_str: str, pci_bus_info: dict) -> None:
         matched_pci_device_info = PATTERN_PCI_DEVICE.match(raw_str)
         if matched_pci_device_info:
             self.slot = matched_pci_device_info.group("slot")
             self.device_class = matched_pci_device_info.group("device_class")
             self.vendor = matched_pci_device_info.group("vendor")
+            self.device_id = pci_bus_info[self.slot]["device_id"]
+            self.vendor_id = pci_bus_info[self.slot]["vendor_id"]
             self.device_info = matched_pci_device_info.group("device")
         else:
             raise LisaException("cannot find any matched pci devices")
@@ -109,7 +129,7 @@ class Lspci(Tool):
         return devices_slots
 
     def get_devices_by_type(
-        self, device_type: str, force_run: bool = False
+        self, device_type: str, device_id: str = "", force_run: bool = False
     ) -> List[PciDevice]:
         if device_type.upper() not in DEVICE_TYPE_DICT.keys():
             raise LisaException(
@@ -117,14 +137,38 @@ class Lspci(Tool):
             )
         class_names = DEVICE_TYPE_DICT[device_type.upper()]
         devices_list = self.get_devices(force_run)
-        device_type_list = [x for x in devices_list if x.device_class in class_names]
+        device_ids = DEVICE_ID_DICT[device_type.upper()]
+        if device_ids:
+            device_type_list = [
+                x
+                for x in devices_list
+                if x.device_class in class_names and x.device_id in device_ids
+            ]
+        else:
+            device_type_list = [
+                x for x in devices_list if x.device_class in class_names
+            ]
         return device_type_list
 
     def get_devices(self, force_run: bool = False) -> List[PciDevice]:
         if (not self._pci_devices) or force_run:
             self._pci_devices = []
+            # _pci_bus_info dict:
+            # {'slot':{'device_id': <device_id>, 'vendor_id': <vendor_id>}}
+            self._pci_bus_info = {}
             # Ensure pci device ids and name mappings are updated.
             self.node.execute("update-pciids", sudo=True)
+            # Getting 
+            pci_bus_raw = self.node.execute("grep PCI_ID /sys/bus/pci/devices/*/uevent", sudo=True, shell=True)
+            for pci_bus in pci_bus_raw.stdout.splitlines():
+                pci_bus_info={}
+                matched_pci_bus_info = PATTERN_PCI_BUS.match(pci_bus)
+                pci_bus_info[matched_pci_bus_info["slot"]] = {
+                    "device_id": matched_pci_bus_info["device_id"],
+                    "vendor_id": matched_pci_bus_info["vendor_id"]
+                }
+                self._pci_bus_info.update(pci_bus_info)
+
             result = self.run(
                 "-m",
                 force_run=force_run,
@@ -133,7 +177,7 @@ class Lspci(Tool):
                 sudo=True,
             )
             for pci_raw in result.stdout.splitlines():
-                pci_device = PciDevice(pci_raw)
+                pci_device = PciDevice(pci_raw, self._pci_bus_info)
                 self._pci_devices.append(pci_device)
 
         return self._pci_devices
