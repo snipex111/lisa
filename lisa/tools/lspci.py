@@ -171,15 +171,25 @@ class Lspci(Tool):
         return devices_slots
 
     def get_devices_by_type(
-        self, device_type: str, force_run: bool = False
+        self, device_type: str, force_run: bool = False, use_pci_ids: bool = False
     ) -> List[PciDevice]:
         if device_type.upper() not in DEVICE_TYPE_DICT.keys():
             raise LisaException(
                 f"pci_type '{device_type}' is not supported to be searched."
             )
-        class_names = DEVICE_TYPE_DICT[device_type.upper()]
         devices_list = self.get_devices(force_run)
-        device_type_list = [x for x in devices_list if x.device_class in class_names]
+        device_type_list = []
+        if use_pci_ids:
+            for device in devices_list:
+                if (
+                    device.controller_id in CONTROLLER_ID_DICT[device_type.upper()]
+                    and device.vendor_id in VENDOR_ID_DICT[device_type.upper()]
+                    and device.device_id in DEVICE_ID_DICT[device_type.upper()]
+                ):
+                    device_type_list.append(device)
+        else:
+            class_names = DEVICE_TYPE_DICT[device_type.upper()]
+            device_type_list = [x for x in devices_list if x.device_class in class_names]
         return device_type_list
 
     def get_devices(self, force_run: bool = False) -> List[PciDevice]:
@@ -230,8 +240,8 @@ class Lspci(Tool):
                 self._pci_devices.append(pci_device)
         return self._pci_devices
 
-    def disable_devices_by_type(self, device_type: str) -> int:
-        devices = self.get_devices_by_type(device_type, force_run=True)
+    def disable_devices_by_type(self, device_type: str, use_pci_ids: bool = False) -> int:
+        devices = self.get_devices_by_type(device_type, force_run=True, use_pci_ids=use_pci_ids)
         if 0 == len(devices):
             raise LisaException(f"No matched device type {device_type} found.")
         for device in devices:
@@ -326,8 +336,8 @@ class LspciBSD(Lspci):
             self._enable_device(device)
         self._disabled_devices.clear()
 
-    def disable_devices_by_type(self, device_type: str) -> int:
-        devices = self.get_device_names_by_type(device_type, force_run=True)
+    def disable_devices_by_type(self, device_type: str, use_pci_ids: bool = False) -> int:
+        devices = self.get_device_names_by_type(device_type, force_run=True, use_pci_ids=use_pci_ids)
         for device in devices:
             self._disable_device(device)
             self._disabled_devices.add(device)
