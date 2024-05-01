@@ -185,10 +185,10 @@ class Lspci(Tool):
     def get_devices(self, force_run: bool = False) -> List[PciDevice]:
         if (not self._pci_devices) or force_run:
             self._pci_devices = []
-            self._pci_device_ids = {}
+            self._pci_ids = {}
             # Ensure pci device ids and name mappings are updated.
             self.node.execute("update-pciids", sudo=True)
-            # Fetch pci ids using 'lspci -n':
+
             # Fetching the id information using 'lspci -nnm' is not reliable
             # due to inconsistencies in device id patterns.
             # Example output of 'lspci -nnm':
@@ -197,6 +197,7 @@ class Lspci(Tool):
             # Sample 'lspci -n' output for above devices:
             # d2e9:00:00.0 0108: 1414:00a9
             # d3f4:00:02.0 0200: 15b3:101a (rev 80)
+            # Fetch pci ids using 'lspci -n':
             result = self.run(
                 "-n",
                 force_run=force_run,
@@ -215,7 +216,7 @@ class Lspci(Tool):
                     }
                 else:
                     raise LisaException("cannot find any matched pci ids")
-                self._pci_device_ids.update(pci_device_id_info)
+                self._pci_ids.update(pci_device_id_info)
 
             result = self.run(
                 "-m",
@@ -225,7 +226,7 @@ class Lspci(Tool):
                 sudo=True,
             )
             for pci_raw in result.stdout.splitlines():
-                pci_device = PciDevice(pci_raw, self._pci_device_ids)
+                pci_device = PciDevice(pci_raw, self._pci_ids)
                 self._pci_devices.append(pci_device)
         return self._pci_devices
 
