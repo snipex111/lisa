@@ -57,6 +57,50 @@ VENDOR_TYPE_DICT: Dict[str, List[str]] = {
     constants.DEVICE_TYPE_GPU: ["NVIDIA Corporation"],
 }
 
+DEVICE_ID_DICT: Dict[str, List[str]] = {
+    constants.DEVICE_TYPE_SRIOV: [
+        "1004", # Mellanox Technologies MT27500/MT27520 Family [ConnectX-3/ConnectX-3 Pro Virtual Function]
+        "1016", # Mellanox Technologies MT27710 Family [ConnectX-4 Lx Virtual Function]
+        "101a", # Mellanox Technologies MT28800 Family [ConnectX-5 Ex Virtual Function]
+    ],
+    constants.DEVICE_TYPE_NVME: [
+        "b111" # Microsoft Corporation Device, Local NVMe discs
+    ],
+    constants.DEVICE_TYPE_ASAP: [
+        "00a9" # Remote discs connected using NVMe disc controller
+    ],
+    constants.DEVICE_TYPE_GPU: [
+        "1db4", # NVIDIA Corporation GV100GL [Tesla V100 PCIe 16GB]
+        "1eb8", # NVIDIA Corporation TU104GL [Tesla T4]
+        "13f2", # NVIDIA Corporation GM204GL [Tesla M60]
+    ],
+}
+
+VENDOR_ID_DICT: Dict[str, List[str]] = {
+    constants.DEVICE_TYPE_SRIOV: [
+        "1414", # Microsoft Corporation
+        "15b3" # Mellanox Technologies
+    ],
+    constants.DEVICE_TYPE_NVME: [
+        "1414" # Microsoft Corporation
+    ],
+    constants.DEVICE_TYPE_GPU: [
+        "10de" # NVIDIA Corporation
+    ],
+}
+
+CONTROLLER_ID_DICT: Dict[str, List[str]] = {
+    constants.DEVICE_TYPE_SRIOV: [
+        "0200", # Ethernet controller
+    ],
+    constants.DEVICE_TYPE_NVME: [
+        "0108", # Non-Volatile memory controller
+    ],
+    constants.DEVICE_TYPE_GPU: [
+        "0302", # VGA compatible controller"
+    ],
+}
+
 # Kernel driver in use: mlx4_core
 # Kernel driver in use: mlx5_core
 # Kernel driver in use: mlx4_core\r
@@ -144,10 +188,10 @@ class Lspci(Tool):
             self._pci_device_ids = {}
             # Ensure pci device ids and name mappings are updated.
             self.node.execute("update-pciids", sudo=True)
-            # Fetch pci ids using 'lspci -n'
-            # Fetching the same information using 'lspci -nnm' is not reliable
-            # due to inconsistencies in device id field.
-            # Ex:
+            # Fetch pci ids using 'lspci -n':
+            # Fetching the id information using 'lspci -nnm' is not reliable
+            # due to inconsistencies in device id patterns.
+            # Example output of 'lspci -nnm':
             # d2e9:00:00.0 "Non-Volatile memory controller [0108]" "Microsoft Corporation [1414]" "Device [00a9]" -p02 "Microsoft Corporation [1414]" "Device [0000]" # noqa: E501
             # d3f4:00:02.0 "Ethernet controller [0200]" "Mellanox Technologies [15b3]" "MT28800 Family [ConnectX-5 Ex Virtual Function] [101a]" -r80 "Mellanox Technologies [15b3]" "MT28800 Family [ConnectX-5 Ex Virtual Function] [0127]" # noqa: E501
             # Sample 'lspci -n' output for above devices:
