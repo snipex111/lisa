@@ -32,7 +32,7 @@ from lisa.util import LisaException, constants, find_patterns_in_lines, get_matc
 #             -r20 "Dell" "PowerEdge R610 BCM5709 Gigabit Ethernet
 PATTERN_PCI_DEVICE = re.compile(
     r"^(?P<slot>[^\s]+)\s+[\"\'](?P<device_class>[^\"\']+)[\"\']\s+[\"\']"
-    r"(?P<vendor>[^\"\']+)[\"\']\s+[\"\'](?P<device_id>[^\"\']+)(?P<device>.*?)[\"\']?$",
+    r"(?P<vendor>[^\"\']+)[\"\']\s+[\"\'](?P<device>.*?)[\"\']?$",
     re.MULTILINE,
 )
 
