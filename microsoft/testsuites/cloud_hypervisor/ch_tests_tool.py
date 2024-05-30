@@ -411,11 +411,11 @@ class CloudHypervisorTests(Tool):
         if self.node.features.is_supported(SerialConsole):
             serial_console = self.node.features[SerialConsole]
             serial_console.get_console_log(log_path, force_run=True)
-        else:
-            dmesg_str = self.node.tools[Dmesg].get_output(force_run=True)
-            dmesg_path = log_path / "dmesg"
-            with open(str(dmesg_path), "w", encoding="utf-8") as f:
-                f.write(dmesg_str)
+
+        dmesg_str = self.node.tools[Dmesg].get_output(force_run=True)
+        dmesg_path = log_path / "dmesg"
+        with open(str(dmesg_path), "w", encoding="utf-8") as f:
+            f.write(dmesg_str)
 
     def _configure_vdpa_devices(self, node: Node) -> None:
         # Load the VDPA kernel modules
