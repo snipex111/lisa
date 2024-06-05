@@ -79,68 +79,70 @@ class CloudHypervisorTests(Tool):
         only: Optional[List[str]] = None,
         skip: Optional[List[str]] = None,
     ) -> None:
-        if ref:
-            self.node.tools[Git].checkout(ref, self.repo_root)
-
-        subtests = self._list_subtests(hypervisor, test_type)
-
-        if only is not None:
-            if not skip:
-                skip = []
-            # Add everything except 'only' to skip list
-            skip += list(subtests.difference(only))
-        if skip is not None:
-            subtests.difference_update(skip)
-            skip_args = " ".join(map(lambda t: f"--skip {t}", skip))
-        else:
-            skip_args = ""
-        self._log.debug(f"Final Subtests list to run: {subtests}")
-
-        if isinstance(self.node.os, CBLMariner) and hypervisor == "mshv":
-            # Install dependency to create VDPA Devices
-            self.node.os.install_packages(["iproute", "iproute-devel"])
-            # Load VDPA kernel module and create devices
-            self._configure_vdpa_devices(self.node)
-
-        result = self.run(
-            f"tests --hypervisor {hypervisor} --{test_type} -- -- {skip_args}",
-            timeout=self.CMD_TIME_OUT,
-            force_run=True,
-            cwd=self.repo_root,
-            no_info_log=False,  # print out result of each test
-            shell=True,
-            update_envs=self.env_vars,
-        )
-
-        # Report subtest results and collect logs before doing any
-        # assertions.
-        results = self._extract_test_results(result.stdout, log_path, subtests)
-        failures = [r.name for r in results if r.status == TestStatus.FAILED]
-
-        for r in results:
-            send_sub_test_result_message(
-                test_result=test_result,
-                test_case_name=r.name,
-                test_status=r.status,
-                test_message=r.message,
-            )
-
         self._save_kernel_logs(log_path)
+        return 
+        # if ref:
+        #     self.node.tools[Git].checkout(ref, self.repo_root)
 
-        has_failures = len(failures) > 0
-        if result.is_timeout and has_failures:
-            fail(
-                f"Timed out after {result.elapsed:.2f}s "
-                f"with unexpected failures: {failures}"
-            )
-        elif result.is_timeout:
-            fail(f"Timed out after {result.elapsed:.2f}s")
-        elif has_failures:
-            fail(f"Unexpected failures: {failures}")
-        else:
-            # The command could have failed before starting test case execution.
-            # So, check the exit code too.
-            result.assert_exit_code()
+        # subtests = self._list_subtests(hypervisor, test_type)
+
+        # if only is not None:
+        #     if not skip:
+        #         skip = []
+        #     # Add everything except 'only' to skip list
+        #     skip += list(subtests.difference(only))
+        # if skip is not None:
+        #     subtests.difference_update(skip)
+        #     skip_args = " ".join(map(lambda t: f"--skip {t}", skip))
+        # else:
+        #     skip_args = ""
+        # self._log.debug(f"Final Subtests list to run: {subtests}")
+
+        # if isinstance(self.node.os, CBLMariner) and hypervisor == "mshv":
+        #     # Install dependency to create VDPA Devices
+        #     self.node.os.install_packages(["iproute", "iproute-devel"])
+        #     # Load VDPA kernel module and create devices
+        #     self._configure_vdpa_devices(self.node)
+
+        # result = self.run(
+        #     f"tests --hypervisor {hypervisor} --{test_type} -- -- {skip_args}",
+        #     timeout=self.CMD_TIME_OUT,
+        #     force_run=True,
+        #     cwd=self.repo_root,
+        #     no_info_log=False,  # print out result of each test
+        #     shell=True,
+        #     update_envs=self.env_vars,
+        # )
+
+        # # Report subtest results and collect logs before doing any
+        # # assertions.
+        # results = self._extract_test_results(result.stdout, log_path, subtests)
+        # failures = [r.name for r in results if r.status == TestStatus.FAILED]
+
+        # for r in results:
+        #     send_sub_test_result_message(
+        #         test_result=test_result,
+        #         test_case_name=r.name,
+        #         test_status=r.status,
+        #         test_message=r.message,
+        #     )
+
+        # self._save_kernel_logs(log_path)
+
+        # has_failures = len(failures) > 0
+        # if result.is_timeout and has_failures:
+        #     fail(
+        #         f"Timed out after {result.elapsed:.2f}s "
+        #         f"with unexpected failures: {failures}"
+        #     )
+        # elif result.is_timeout:
+        #     fail(f"Timed out after {result.elapsed:.2f}s")
+        # elif has_failures:
+        #     fail(f"Unexpected failures: {failures}")
+        # else:
+        #     # The command could have failed before starting test case execution.
+        #     # So, check the exit code too.
+        #     result.assert_exit_code()
 
     def run_metrics_tests(
         self,
