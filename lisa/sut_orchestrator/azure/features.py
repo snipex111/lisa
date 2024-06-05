@@ -6,7 +6,6 @@ import json
 import re
 import string
 from dataclasses import dataclass, field
-from enum import Enum
 from functools import partial
 from pathlib import Path
 from random import randint
@@ -84,12 +83,14 @@ from lisa.util import (
 )
 
 if TYPE_CHECKING:
-    from .platform_ import AzurePlatform, AzureCapability
+    from .platform_ import AzurePlatform
 
 from .. import AZURE
 from .common import (
     AvailabilityArmParameter,
     AzureArmParameter,
+    AzureCapability,
+    AzureImageSchema,
     AzureNodeSchema,
     check_or_create_storage_account,
     create_update_private_dns_zone_groups,
@@ -2151,6 +2152,8 @@ class Hibernation(AzureFeatureMixin, features.Hibernation):
                 "standardddsv5family",
                 "standarddasv5family",
                 "standarddadsv5family",
+                "standardebdsv5family",
+                "standardesv5family",
             ]
             or raw_capabilities.get("HibernationSupported", None) == "True"
         ):
@@ -2281,6 +2284,13 @@ class SecurityProfile(AzureFeatureMixin, features.SecurityProfile):
         return SecurityProfileSettings(
             security_profile=search_space.SetSpace(True, capabilities)
         )
+
+    @classmethod
+    def create_image_requirement(
+        cls, image: schema.ImageSchema
+    ) -> Optional[schema.FeatureSettings]:
+        assert isinstance(image, AzureImageSchema), f"actual: {type(image)}"
+        return SecurityProfileSettings(security_profile=image.security_profile)
 
     @classmethod
     def on_before_deployment(cls, *args: Any, **kwargs: Any) -> None:
@@ -2972,6 +2982,13 @@ class VhdGeneration(AzureFeatureMixin, Feature):
         return settings
 
     @classmethod
+    def create_image_requirement(
+        cls, image: schema.ImageSchema
+    ) -> Optional[schema.FeatureSettings]:
+        assert isinstance(image, AzureImageSchema), f"actual: {type(image)}"
+        return VhdGenerationSettings(gen=image.hyperv_generation)
+
+    @classmethod
     def settings_type(cls) -> Type[schema.FeatureSettings]:
         return VhdGenerationSettings
 
@@ -2983,27 +3000,26 @@ class VhdGeneration(AzureFeatureMixin, Feature):
         return True
 
 
-class ArchitectureType(str, Enum):
-    x64 = "x64"
-    Arm64 = "Arm64"
-
-
 @dataclass_json()
 @dataclass()
 class ArchitectureSettings(schema.FeatureSettings):
     type: str = "Architecture"
     # Architecture in hyper-v
     arch: Union[
-        ArchitectureType, search_space.SetSpace[ArchitectureType]
+        schema.ArchitectureType, search_space.SetSpace[schema.ArchitectureType]
     ] = field(  # type: ignore
         default_factory=partial(
-            search_space.SetSpace, items=[ArchitectureType.x64, ArchitectureType.Arm64]
+            search_space.SetSpace,
+            items=[schema.ArchitectureType.x64, schema.ArchitectureType.Arm64],
         ),
         metadata=field_metadata(
             decoder=partial(
                 search_space.decode_nullable_set_space,
-                base_type=ArchitectureType,
-                default_values=[ArchitectureType.x64, ArchitectureType.Arm64],
+                base_type=schema.ArchitectureType,
+                default_values=[
+                    schema.ArchitectureType.x64,
+                    schema.ArchitectureType.Arm64,
+                ],
             )
         ),
     )
@@ -3050,7 +3066,7 @@ class ArchitectureSettings(schema.FeatureSettings):
         value.arch = getattr(search_space, f"{method.value}_setspace_by_priority")(
             self.arch,
             capability.arch,
-            [ArchitectureType.x64, ArchitectureType.Arm64],
+            [schema.ArchitectureType.x64, schema.ArchitectureType.Arm64],
         )
         return value
 
@@ -3064,6 +3080,13 @@ class Architecture(AzureFeatureMixin, Feature):
         return ArchitectureSettings(
             arch=raw_capabilities.get("CpuArchitectureType", "x64")
         )
+
+    @classmethod
+    def create_image_requirement(
+        cls, image: schema.ImageSchema
+    ) -> Optional[schema.FeatureSettings]:
+        assert isinstance(image, AzureImageSchema), f"actual: {type(image)}"
+        return ArchitectureSettings(arch=image.architecture)
 
     @classmethod
     def settings_type(cls) -> Type[schema.FeatureSettings]:
