@@ -224,7 +224,7 @@ class Ntttcp(Tool):
         if run_as_daemon:
             cmd += " -D "
         process = self.node.execute_async(
-            f"ulimit -n 204800 && {self.command} {cmd}", shell=True, sudo=True
+            f"ulimit -n 204800 && taskset -c 0-51 {self.command} {cmd}", shell=True, sudo=True
         )
         # NTTTCP for Linux 1.4.0
         # ---------------------------------------------------------
@@ -328,7 +328,7 @@ class Ntttcp(Tool):
         if run_as_daemon:
             cmd += " -D "
         result = self.node.execute(
-            f"ulimit -n 204800 && {self.command} {cmd}",
+            f"ulimit -n 204800 && taskset -c 0-51 {self.command} {cmd}",
             shell=True,
             sudo=True,
             expected_exit_code=0,
@@ -501,7 +501,7 @@ class Ntttcp(Tool):
             )
         if need_reboot:
             self._log.debug("reboot vm to make sure TasksMax change take effect")
-            self.node.reboot()
+            self.node.reboot(time_out=9000)
 
 
 class BSDNtttcp(Ntttcp):
@@ -570,7 +570,7 @@ class BSDNtttcp(Ntttcp):
 
         # Start the server and wait for the threads to be created
         process = self.node.execute_async(
-            f"ulimit -n 204800 && {self.command} {cmd}", shell=True, sudo=True
+            f"ulimit -n 204800 && taskset -c 0-51 {self.command} {cmd}", shell=True, sudo=True
         )
         time.sleep(5)
 
@@ -603,7 +603,7 @@ class BSDNtttcp(Ntttcp):
         if run_as_daemon:
             cmd += " -D "
         result = self.node.execute(
-            f"ulimit -n 204800 && {self.command} {cmd}",
+            f"ulimit -n 204800 && taskset -c 0-51 {self.command} {cmd}",
             shell=True,
             sudo=True,
             expected_exit_code=0,
