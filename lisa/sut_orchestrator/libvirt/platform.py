@@ -34,20 +34,23 @@ from lisa.tools import (
     Iptables,
     Journalctl,
     Ls,
+    Lspci,
     Mkdir,
+    Modprobe,
     QemuImg,
     Sed,
     Service,
     Uname,
     Whoami,
 )
-from lisa.util import LisaException, constants, get_public_key_data
+from lisa.util import LisaException, SkippedException, constants, get_public_key_data
 from lisa.util.logger import Logger, filter_ansi_escape, get_logger
 
 from . import libvirt_events_thread
 from .console_logger import QemuConsoleLogger
 from .context import (
     DataDiskContext,
+    DevicePassthroughContext,
     InitSystem,
     NodeContext,
     get_environment_context,
@@ -60,6 +63,9 @@ from .schema import (
     BaseLibvirtNodeSchema,
     BaseLibvirtPlatformSchema,
     DiskImageFormat,
+    HostDevicePoolSchema,
+    HostDevicePoolType,
+    PciDeviceAddress,
 )
 from .serial_console import SerialConsole
 from .start_stop import StartStop
@@ -84,6 +90,9 @@ class BaseLibvirtPlatform(Platform, IBaseLibvirtPlatform):
     # appended as a comment and then used to identify the line to delete during
     # cleanup.
     CONFIG_FILE_MARKER = "lisa-libvirt-platform"
+
+    # Mapping of Host Device Passthrough
+    AVAILABLE_HOST_DEVICES: Dict[HostDevicePoolType, List[PciDeviceAddress]] = {}
 
     _supported_features: List[Type[Feature]] = [
         SerialConsole,
@@ -218,6 +227,12 @@ class BaseLibvirtPlatform(Platform, IBaseLibvirtPlatform):
 
         environment_context.ssh_public_key = get_public_key_data(
             self.runbook.admin_private_key_file
+        )
+
+        # If Device_passthrough is set in runbook,
+        # Configure device passthrough params
+        self._configure_device_passthrough(
+            self.platform_runbook.device_pools,
         )
 
     def _configure_node_capabilities(
@@ -503,6 +518,8 @@ class BaseLibvirtPlatform(Platform, IBaseLibvirtPlatform):
 
                 node_context.data_disks.append(data_disk)
 
+        self._set_device_passthrough_node_context(node_context, node_runbook)
+
     def restart_domain_and_attach_logger(self, node: Node) -> None:
         node_context = get_node_context(node)
         domain = node_context.domain
@@ -536,6 +553,18 @@ class BaseLibvirtPlatform(Platform, IBaseLibvirtPlatform):
 
         # Start the VM.
         node_context.domain.resume()
+
+        # Once libvirt domain is created, check if driver attached to device
+        # on the host is vfio-pci for PCI device passthrough to make sure if
+        # pass-through for PCI device is happened properly or not
+        self._verify_device_passthrough_post_boot(
+            node_context=node_context,
+        )
+
+        # Update the host devices passthrough list
+        self._remove_device_from_pool(
+            node_context.device_passthrough_context,
+        )
 
     # Create all the VMs.
     def _create_nodes(
@@ -653,6 +682,12 @@ class BaseLibvirtPlatform(Platform, IBaseLibvirtPlatform):
             node_context.domain = None
 
         watchdog.cancel()
+
+        # Add passthrough device back in the
+        # list of available device once domain is deleted
+        for context in node_context.device_passthrough_context:
+            devices = context.device_list
+            self.AVAILABLE_HOST_DEVICES[context.pool_type] += devices
 
     def _get_domain_undefine_flags(self) -> int:
         return int(
@@ -942,6 +977,8 @@ class BaseLibvirtPlatform(Platform, IBaseLibvirtPlatform):
         on_crash.text = "destroy"
 
         devices = ET.SubElement(domain, "devices")
+        if node_context.is_device_passthrough_set:
+            devices = self._add_device_passthrough(devices, node_context)
 
         serial = ET.SubElement(devices, "serial")
         serial.attrib["type"] = "pty"
@@ -1341,3 +1378,159 @@ class BaseLibvirtPlatform(Platform, IBaseLibvirtPlatform):
             )
             with open(str(libvirt_log_local_path), "w") as f:
                 f.write(libvirt_log)
+
+    def _configure_device_passthrough(
+        self,
+        device_configs: Optional[List[HostDevicePoolSchema]],
+    ) -> None:
+        if device_configs:
+            for config in device_configs:
+                for device in config.devices:
+                    if self._device_exists(device):
+                        if self._is_kernel_driver_vfio_pci(device):
+                            raise LisaException(
+                                "Kernel Driver in use for Device is 'vfio-pci'"
+                                f", Device: {device}"
+                            )
+                        devices = self.AVAILABLE_HOST_DEVICES.get(config.type, [])
+                        devices.append(device)
+                        self.AVAILABLE_HOST_DEVICES[config.type] = devices
+                    else:
+                        raise LisaException(f"Device not found on host: {device}")
+
+            self._check_passthrough_support(self.host_node)
+
+            modprobe = self.host_node.tools[Modprobe]
+            allow_unsafe_interrupt = modprobe.load(
+                modules="vfio_iommu_type1",
+                options="allow_unsafe_interrupts=1",
+            )
+            if not allow_unsafe_interrupt:
+                raise LisaException("Allowing unsafe interrupt failed")
+
+    def _add_device_passthrough(
+        self,
+        devices: ET.Element,
+        node_context: NodeContext,
+    ) -> ET.Element:
+        for context in node_context.device_passthrough_context:
+            print(context.device_list)
+            for config in context.device_list:
+                hostdev = ET.SubElement(devices, "hostdev")
+                hostdev.attrib["mode"] = "subsystem"
+
+                assert context.managed
+                hostdev.attrib["managed"] = context.managed
+
+                assert context.pool_type
+                if "pci" in context.pool_type.value:
+                    hostdev.attrib["type"] = "pci"
+
+                    source = ET.SubElement(hostdev, "source")
+                    src_addrs = ET.SubElement(source, "address")
+
+                    assert config.domain
+                    src_addrs.attrib["domain"] = f"0x{config.domain}"
+
+                    assert config.bus
+                    src_addrs.attrib["bus"] = f"0x{config.bus}"
+
+                    assert config.slot
+                    src_addrs.attrib["slot"] = f"0x{config.slot}"
+
+                    assert config.function
+                    src_addrs.attrib["function"] = f"0x{config.function}"
+
+                    driver = ET.SubElement(hostdev, "driver")
+                    driver.attrib["name"] = "vfio"
+
+        return devices
+
+    def _get_pci_address_str(self, device_addr: PciDeviceAddress) -> str:
+        bus = device_addr.bus
+        slot = device_addr.slot
+        fn = device_addr.function
+        return f"{bus}:{slot}.{fn}"
+
+    def _get_device_from_pool(
+        self,
+        pool_type: HostDevicePoolType,
+        count: int,
+    ) -> List[PciDeviceAddress]:
+        pool = self.AVAILABLE_HOST_DEVICES[pool_type]
+        if len(pool) < count:
+            raise SkippedException(
+                f"Pool {pool_type} running out of Devices, Required device were"
+                f" {count}, but available devices count is {len(pool)}"
+            )
+        return pool[:count]
+
+    def _remove_device_from_pool(
+        self,
+        device_context: List[DevicePassthroughContext],
+    ) -> None:
+        for context in device_context:
+            pool_type = context.pool_type
+            devices = context.device_list
+            pool = self.AVAILABLE_HOST_DEVICES[pool_type]
+            for device in devices:
+                pool.remove(device)
+            self.AVAILABLE_HOST_DEVICES[pool_type] = pool
+
+    def _verify_device_passthrough_post_boot(
+        self,
+        node_context: NodeContext,
+    ) -> None:
+        device_context = node_context.device_passthrough_context
+        for context in device_context:
+            devices = context.device_list
+            for device in devices:
+                err = f"Kernel driver is not vfio-pci for device: {device}"
+                pool_type = context.pool_type.value
+                if context.managed == "yes" and "pci" in pool_type:
+                    is_vfio_pci = self._is_kernel_driver_vfio_pci(device)
+                    assert is_vfio_pci, err
+
+    def _device_exists(self, device_addr: PciDeviceAddress) -> bool:
+        devices_list = self.host_node.tools[Lspci].get_devices()
+        devices_slots = [x.slot for x in devices_list]
+        device_addr_str = self._get_pci_address_str(device_addr)
+        if device_addr_str in devices_slots:
+            return True
+        return False
+
+    def _check_passthrough_support(self, node: Node) -> None:
+        ls = node.tools[Ls]
+        path = "/dev/vfio/vfio"
+        err = "Host does not support IOMMU"
+        if not ls.path_exists(path=path, sudo=True):
+            raise LisaException(f"{err} : {path} does not exist")
+
+        path = "/sys/kernel/iommu_groups/"
+        if len(ls.list(path=path, sudo=True)) == 0:
+            raise LisaException(f"{err} : {path} does not have any entry")
+
+    def _is_kernel_driver_vfio_pci(
+        self,
+        device_addr: PciDeviceAddress,
+    ) -> bool:
+        lspci = self.host_node.tools[Lspci]
+        device_addr_str = self._get_pci_address_str(device_addr)
+        kernel_module = lspci.get_used_module(device_addr_str)
+        return kernel_module == "vfio-pci"
+
+    def _set_device_passthrough_node_context(
+        self,
+        node_context: NodeContext,
+        node_runbook: BaseLibvirtNodeSchema,
+    ) -> None:
+        if node_runbook.device_passthrough:
+            node_context.is_device_passthrough_set = True
+            for config in node_runbook.device_passthrough:
+                count = config.count
+                device_context = DevicePassthroughContext()
+                device_context.managed = config.managed
+                device_context.pool_type = config.pool_type
+                devices = self._get_device_from_pool(config.pool_type, count)
+                device_context.device_list = devices
+                node_context.device_passthrough_context.append(device_context)

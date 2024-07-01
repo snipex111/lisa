@@ -10,6 +10,11 @@ FIRMWARE_TYPE_BIOS = "bios"
 FIRMWARE_TYPE_UEFI = "uefi"
 
 
+class HostDevicePoolType(Enum):
+    PCI_NIC = "pci_net"
+    PCI_GPU = "pci_gpu"
+
+
 # Configuration options for cloud-init ISO generation for the VM.
 @dataclass_json()
 @dataclass
@@ -34,6 +39,26 @@ class LibvirtHost:
         return self.address is not None
 
 
+# Configuration options for device-passthrough for the VM.
+@dataclass_json()
+@dataclass
+class PciDeviceAddress:
+    # Host device details for which we want to perform device-passthrough
+    # we can get it using lspci command
+    domain: str = ""
+    bus: str = ""
+    slot: str = ""
+    function: str = ""
+
+
+# Configuration options for device-passthrough for the VM.
+@dataclass_json()
+@dataclass
+class HostDevicePoolSchema:
+    type: HostDevicePoolType = HostDevicePoolType.PCI_NIC
+    devices: List[PciDeviceAddress] = field(default_factory=list)
+
+
 # QEMU orchestrator's global configuration options.
 @dataclass_json()
 @dataclass
@@ -50,6 +75,16 @@ class BaseLibvirtPlatformSchema:
     network_boot_timeout: Optional[float] = None
 
     capture_libvirt_debug_logs: bool = False
+
+    device_pools: Optional[List[HostDevicePoolSchema]] = None
+
+
+@dataclass_json()
+@dataclass
+class DevicePassthroughSchema:
+    pool_type: HostDevicePoolType = HostDevicePoolType.PCI_NIC
+    managed: str = ""
+    count: int = 0
 
 
 # Possible disk image formats
@@ -84,6 +119,9 @@ class BaseLibvirtNodeSchema:
     machine_type: str = ""
     # Whether to enable secure boot.
     enable_secure_boot: bool = False
+
+    # Configuration options for device-passthrough.
+    device_passthrough: Optional[List[DevicePassthroughSchema]] = None
 
 
 # QEMU orchestrator's per-node configuration options.
