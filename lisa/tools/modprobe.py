@@ -87,6 +87,7 @@ class Modprobe(Tool):
         self,
         modules: Union[str, List[str]],
         dry_run: bool = False,
+        options: str = "",
     ) -> bool:
         if isinstance(modules, list):
             modules_str = "-a " + " ".join(modules)
@@ -95,6 +96,8 @@ class Modprobe(Tool):
         command = f"{modules_str}"
         if dry_run:
             command = f"--dry-run {command}"
+        if options:
+            command = f"{command} {options}"
         result = self.run(
             command,
             force_run=True,
