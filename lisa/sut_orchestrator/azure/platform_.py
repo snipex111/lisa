@@ -141,6 +141,7 @@ VM_SIZE_FALLBACK_PATTERNS = [
     re.compile(r"Standard_DS([\d]{2})_v2"),
     re.compile(r".*"),
 ]
+
 LOCATIONS = [
     "westus3",
     "southeastasia",
@@ -172,6 +173,9 @@ HOST_VERSION_PATTERN = re.compile(
 # normal
 # [    0.000000] Linux version 5.4.0-1043-azure (buildd@lgw01-amd64-026) (gcc ...
 KERNEL_VERSION_PATTERN = re.compile(r"Linux version (?P<kernel_version>.+?) ", re.M)
+
+
+CPU_CORE_COUNT_PATTERN = re.compile(r'^[^\d]+(?P<cpu_core_count>\d+).+$',re.MULTILINE)
 
 # 2021/03/31 00:05:17.431693 INFO Daemon Azure Linux Agent Version:2.2.38
 # 2021/04/19 13:16:28 Windows Azure Linux Agent Version: WALinuxAgent-2.0.14
@@ -1505,6 +1509,20 @@ class AzurePlatform(Platform):
         log.info(f"resource group '{resource_group_name}' deployment is in progress...")
         deployment_operation: Any = None
         deployments = self._rm_client.deployments
+
+        try:
+            assert environment.runbook.nodes_requirement
+            assert environment.runbook.nodes_requirement[0].extended_schemas
+            vm_size = environment.runbook.nodes_requirement[
+                0
+            ].extended_schemas["azure"]["vm_size"]
+        except (KeyError, IndexError, AssertionError):
+            vm_size = None
+        time_out=300
+        if vm_size:
+            cpu_matched_result = CPU_CORE_COUNT_PATTERN.match(vm_size)
+            time_out = min(9000,int(cpu_matched_result.group("cpu_core_count")) * 300 if cpu_matched_result else time_out)
+        log.info(f"deployment time out: {time_out}")
         try:
             deployment_operation = deployments.begin_create_or_update(
                 **deployment_parameters
@@ -1512,7 +1530,7 @@ class AzurePlatform(Platform):
             while True:
                 try:
                     wait_operation(
-                        deployment_operation, time_out=300, failure_identity="deploy"
+                        deployment_operation, time_out=time_out, failure_identity="deploy"
                     )
                 except LisaTimeoutException:
                     self._save_console_log_and_check_panic(

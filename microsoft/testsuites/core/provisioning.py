@@ -66,13 +66,16 @@ class Provisioning(TestSuite):
         4. Otherwise, fully passed.
         """,
         priority=0,
+        # set_logical_timeout=True,
         requirement=simple_requirement(
             environment_status=EnvironmentStatus.Deployed,
             supported_features=[SerialConsole],
         ),
     )
     def smoke_test(self, log: Logger, node: RemoteNode, log_path: Path) -> None:
+        log.info("running smoke test")
         self._smoke_test(log, node, log_path, "smoke_test")
+        log.info("smoke test passed")
 
     @TestCaseMetadata(
         description="""
