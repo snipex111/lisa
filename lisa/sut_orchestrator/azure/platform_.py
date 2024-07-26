@@ -339,10 +339,9 @@ class AzurePlatformSchema:
         if self.service_principal_client_id or self.service_principal_key:
             add_secret(self.service_principal_client_id, mask=PATTERN_GUID)
             add_secret(self.service_principal_key)
-            if not self.service_principal_client_id or not self.service_principal_key:
+            if not self.service_principal_client_id:
                 raise LisaException(
-                    "service_principal_client_id and service_principal_key "
-                    "should be specified either both or not."
+                    "service_principal_client_id should be specified"
                 )
 
     @property
