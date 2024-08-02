@@ -971,6 +971,9 @@ class AzurePlatform(Platform):
                 cert_file_str = f.read()
                 _certificate_content = base64.b64decode(cert_file_str)
             if ('AZURE_CLIENT_CERTIFICATE_PATH' in os.environ) and (os.environ['AZURE_CLIENT_CERTIFICATE_PATH']):
+                self._log.info(
+                    "---- paxue debug infor: using CertificateCredential ----"
+                )
                 credential = CertificateCredential(
                     os.environ['AZURE_TENANT_ID'],
                     os.environ['AZURE_CLIENT_ID'],
