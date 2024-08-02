@@ -939,14 +939,21 @@ class AzurePlatform(Platform):
                 ] = azure_runbook.service_principal_client_id
             if azure_runbook.service_principal_key:
                 os.environ["AZURE_CLIENT_SECRET"] = azure_runbook.service_principal_key
+                self._log.info(
+                    f"---- paxue debug infor ----"
+                    f"CLIENT_SECRET: {os.environ['AZURE_CLIENT_SECRET']};"
+                )
 
             self._log.info(
                 f"---- paxue debug infor ----"
-                f"old cert path: {os.environ['service_principal_cert_path']};"
                 f"AZURE_TENANT_ID: {os.environ['AZURE_TENANT_ID']}; "
                 f"AZURE_CLIENT_ID: {os.environ['AZURE_CLIENT_ID']}; "
                 f"cert path: {os.environ['AZURE_CLIENT_CERTIFICATE_PATH']}; "
                 f"chain: {os.environ['AZURE_CLIENT_SEND_CERTIFICATE_CHAIN']}"
+            )
+            self._log.info(
+                f"---- paxue debug infor ----"
+                f"old cert: {os.environ['LISA_service_principal_cert_path']};"
             )
 
             credential = DefaultAzureCredential(
