@@ -967,7 +967,7 @@ class AzurePlatform(Platform):
                 f"old cert: {os.environ['LISA_service_principal_cert_path']};"
             )
 
-            with open(os.environ['AZURE_CLIENT_CERTIFICATE_PATH'], "r") as f:
+            with open(os.environ['LISA_service_principal_cert_path'], "r") as f:
                 cert_file_str = f.read()
                 _certificate_content = base64.b64decode(cert_file_str)
             if ('AZURE_CLIENT_CERTIFICATE_PATH' in os.environ) and (os.environ['AZURE_CLIENT_CERTIFICATE_PATH']):
