@@ -947,8 +947,17 @@ class AzurePlatform(Platform):
             self._log.info(
                 f"---- paxue debug infor ----"
                 f"AZURE_TENANT_ID: {os.environ['AZURE_TENANT_ID']}; "
+            )
+            self._log.info(
+                f"---- paxue debug infor ----"
                 f"AZURE_CLIENT_ID: {os.environ['AZURE_CLIENT_ID']}; "
+            )
+            self._log.info(
+                f"---- paxue debug infor ----"
                 f"cert path: {os.environ['AZURE_CLIENT_CERTIFICATE_PATH']}; "
+            )
+            self._log.info(
+                f"---- paxue debug infor ----"
                 f"chain: {os.environ['AZURE_CLIENT_SEND_CERTIFICATE_CHAIN']}"
             )
             self._log.info(
