@@ -1,5 +1,6 @@
 # Copyright (c) Microsoft Corporation.
 # Licensed under the MIT license.
+import base64
 import copy
 import json
 import logging
@@ -7,6 +8,7 @@ import math
 import os
 import re
 import sys
+from azure.identity import CertificateCredential
 from copy import deepcopy
 from dataclasses import InitVar, dataclass, field
 from datetime import datetime
@@ -965,9 +967,20 @@ class AzurePlatform(Platform):
                 f"old cert: {os.environ['LISA_service_principal_cert_path']};"
             )
 
-            credential = DefaultAzureCredential(
-                authority=self.cloud.endpoints.active_directory,
-            )
+            # with open(os.environ['AZURE_CLIENT_CERTIFICATE_PATH'], "r") as f:
+            #     cert_file_str = f.read()
+            #     _certificate_content = base64.b64decode(cert_file_str)
+            if ('AZURE_CLIENT_CERTIFICATE_PATH' in os.environ) and (os.environ['AZURE_CLIENT_CERTIFICATE_PATH']):
+                credential = CertificateCredential(
+                    os.environ['AZURE_TENANT_ID'],
+                    os.environ['AZURE_CLIENT_ID'],
+                    os.environ['AZURE_CLIENT_CERTIFICATE_PATH'],
+                    # certificate_data=_certificate_content,
+                    send_certificate_chain=True)
+            else:
+                credential = DefaultAzureCredential(
+                    authority=self.cloud.endpoints.active_directory,
+                )
 
             with SubscriptionClient(
                 credential,
