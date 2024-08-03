@@ -9,6 +9,7 @@ import os
 import re
 import sys
 from azure.identity import CertificateCredential
+from azure.core.credentials import TokenCredential
 from copy import deepcopy
 from dataclasses import InitVar, dataclass, field
 from datetime import datetime
@@ -419,7 +420,7 @@ class AzurePlatform(Platform):
         super().__init__(runbook=runbook)
 
         # for type detection
-        self.credential: Any
+        self.credential: TokenCredential
         self.cloud: Cloud
 
         # It has to be defined after the class definition is loaded. So it
