@@ -419,7 +419,7 @@ class AzurePlatform(Platform):
         super().__init__(runbook=runbook)
 
         # for type detection
-        self.credential: DefaultAzureCredential
+        self.credential: Any
         self.cloud: Cloud
 
         # It has to be defined after the class definition is loaded. So it
