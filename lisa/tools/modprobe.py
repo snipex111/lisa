@@ -153,6 +153,10 @@ class Modprobe(Tool):
 
 
 class ModprobeFreeBSD(Modprobe):
+    @property
+    def command(self) -> str:
+        return ""
+
     def module_exists(self, modules: Union[str, List[str]]) -> bool:
         module_list = []
         if isinstance(modules, str):
